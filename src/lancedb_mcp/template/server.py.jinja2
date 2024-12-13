@@ -1,0 +1,80 @@
+"""{{ server_name }} server implementation."""
+
+import json
+import os
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import lancedb
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+
+class QueryRequest(BaseModel):
+    """Query request model."""
+
+    query: str
+    k: int = 10
+    nprobes: int = 20
+
+
+class Server:
+    """{{ server_name }} server."""
+
+    def __init__(self, directory: Path) -> None:
+        """Initialize server.
+
+        Args:
+        ----
+            directory: Server directory
+        """
+        self.directory = directory
+        self.db = lancedb.connect(str(directory / "db"))
+        self.app = FastAPI(title="{{ server_name }}", description="{{ server_description }}")
+        self._setup_routes()
+
+    def _setup_routes(self) -> None:
+        """Setup routes."""
+        @self.app.get("/")
+        async def root() -> Dict[str, str]:
+            """Root endpoint.
+
+            Returns:
+            -------
+                Dict[str, str]: Server info
+            """
+            return {
+                "name": "{{ server_name }}",
+                "version": "{{ server_version }}",
+                "description": "{{ server_description }}",
+            }
+
+        @self.app.post("/query")
+        async def query(request: QueryRequest) -> Dict[str, Any]:
+            """Query endpoint.
+
+            Args:
+            ----
+                request: Query request
+
+            Returns:
+            -------
+                Dict[str, Any]: Query results
+            """
+            try:
+                table = self.db.open_table("embeddings")
+                results = table.search(request.query).limit(request.k).nprobes(request.nprobes).to_list()
+                return {"results": results}
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=str(e))
+
+    def run(self, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """Run server.
+
+        Args:
+        ----
+            host: Host to bind to
+            port: Port to bind to
+        """
+        uvicorn.run(self.app, host=host, port=port)

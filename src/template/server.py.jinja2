@@ -1,0 +1,18 @@
+# {{ server_name }} server
+
+from pathlib import Path
+
+class LanceDBServer:
+    """{{ server_description }}"""
+
+    def __init__(self) -> None:
+        """Initialize server."""
+        self.directory = Path("{{ server_directory }}")
+
+    def start(self) -> None:
+        """Start server."""
+        pass
+
+    def stop(self) -> None:
+        """Stop server."""
+        pass

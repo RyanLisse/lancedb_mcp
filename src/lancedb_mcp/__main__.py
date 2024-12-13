@@ -1,20 +1,14 @@
-"""Main entry point for the LanceDB MCP server."""
+"""Main entry point for LanceDB MCP."""
 
 import asyncio
-import sys
 
-from .server import LanceDBServer
+from .cli import cli
+
 
 async def main():
-    """Run the LanceDB MCP server"""
-    server = LanceDBServer()
-    await server.start()
-    try:
-        # Keep the server running
-        while True:
-            await asyncio.sleep(1)
-    finally:
-        await server.stop()
+    """Execute the main entry point."""
+    cli(standalone_mode=False)
+
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    asyncio.run(main())

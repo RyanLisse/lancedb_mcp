@@ -2856,7 +2856,7 @@ This tutorial will primarily focus on tools.
       source .venv/bin/activate
 
       # Install dependencies
-      uv add mcp httpx 
+      uv add mcp httpx
 
       # Remove template file
       rm hello.py
@@ -3043,7 +3043,7 @@ This tutorial will primarily focus on tools.
         """
         if not arguments:
             raise ValueError("Missing arguments")
-      
+
         if name == "get-alerts":
             state = arguments.get("state")
             if not state:
@@ -3084,7 +3084,7 @@ This tutorial will primarily focus on tools.
                     type="text",
                     text="Invalid coordinates. Please provide valid numbers for latitude and longitude."
                 )]
-                
+
             # Basic coordinate validation
             if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
                 return [types.TextContent(
@@ -3105,13 +3105,13 @@ This tutorial will primarily focus on tools.
                 # Extract forecast URL from the response
                 properties = points_data.get("properties", {})
                 forecast_url = properties.get("forecast")
-                
+
                 if not forecast_url:
                     return [types.TextContent(type="text", text="Failed to get forecast URL from grid point data")]
 
                 # Get the forecast
                 forecast_data = await make_nws_request(client, forecast_url)
-                
+
                 if not forecast_data:
                     return [types.TextContent(type="text", text="Failed to retrieve forecast data")]
 
@@ -3734,7 +3734,7 @@ This tutorial will primarily focus on tools.
     <Tabs>
       <Tab title="MacOS/Linux">
         <CodeGroup>
-          ```json Node 
+          ```json Node
           {
               "mcpServers": {
                   "weather": {
@@ -4011,7 +4011,7 @@ In this tutorial, you'll learn how to build a LLM-powered chatbot client that co
     ```python
     async def connect_to_server(self, server_script_path: str):
         """Connect to an MCP server
-        
+
         Args:
             server_script_path: Path to the server script (.py or .js)
         """
@@ -4019,20 +4019,20 @@ In this tutorial, you'll learn how to build a LLM-powered chatbot client that co
         is_js = server_script_path.endswith('.js')
         if not (is_python or is_js):
             raise ValueError("Server script must be a .py or .js file")
-            
+
         command = "python" if is_python else "node"
         server_params = StdioServerParameters(
             command=command,
             args=[server_script_path],
             env=None
         )
-        
+
         stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
         self.stdio, self.write = stdio_transport
         self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
-        
+
         await self.session.initialize()
-        
+
         # List available tools
         response = await self.session.list_tools()
         tools = response.tools
@@ -4054,7 +4054,7 @@ In this tutorial, you'll learn how to build a LLM-powered chatbot client that co
         ]
 
         response = await self.session.list_tools()
-        available_tools = [{ 
+        available_tools = [{
             "name": tool.name,
             "description": tool.description,
             "input_schema": tool.inputSchema
@@ -4078,7 +4078,7 @@ In this tutorial, you'll learn how to build a LLM-powered chatbot client that co
             elif content.type == 'tool_use':
                 tool_name = content.name
                 tool_args = content.input
-                
+
                 # Execute tool call
                 result = await self.session.call_tool(tool_name, tool_args)
                 tool_results.append({"call": tool_name, "result": result})
@@ -4091,7 +4091,7 @@ In this tutorial, you'll learn how to build a LLM-powered chatbot client that co
                       "content": content.text
                     })
                 messages.append({
-                    "role": "user", 
+                    "role": "user",
                     "content": result.content
                 })
 
@@ -4116,17 +4116,17 @@ In this tutorial, you'll learn how to build a LLM-powered chatbot client that co
         """Run an interactive chat loop"""
         print("\nMCP Client Started!")
         print("Type your queries or 'quit' to exit.")
-        
+
         while True:
             try:
                 query = input("\nQuery: ").strip()
-                
+
                 if query.lower() == 'quit':
                     break
-                    
+
                 response = await self.process_query(query)
                 print("\n" + response)
-                    
+
             except Exception as e:
                 print(f"\nError: {str(e)}")
 
@@ -4144,7 +4144,7 @@ In this tutorial, you'll learn how to build a LLM-powered chatbot client that co
         if len(sys.argv) < 2:
             print("Usage: python client.py <path_to_server_script>")
             sys.exit(1)
-            
+
         client = MCPClient()
         try:
             await client.connect_to_server(sys.argv[1])
@@ -4406,5 +4406,3 @@ After Claude helps you build your server:
 Remember that Claude can help you modify and improve your server as requirements change over time.
 
 Need more guidance? Just ask Claude specific questions about implementing MCP features or troubleshooting issues that arise.
-
-

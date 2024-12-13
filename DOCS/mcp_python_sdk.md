@@ -172,7 +172,7 @@ async def run():
             await session.initialize()
 
             # The example server only supports prompt primitives:
-        
+
             # List available prompts
             prompts = await session.list_prompts()
 

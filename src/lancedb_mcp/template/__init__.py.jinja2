@@ -1,0 +1,15 @@
+"""{{ server_name }} server module."""
+
+# {{ server_name }} initialization
+
+from pathlib import Path
+from typing import Optional
+
+from .server import LanceDBServer
+
+__version__ = "{{ server_version }}"
+
+
+def get_server() -> LanceDBServer:
+    """Get server instance."""
+    return LanceDBServer()

@@ -1,0 +1,67 @@
+# {{ server_name }}
+
+{{ server_description }}
+
+## Installation
+
+```bash
+pip install {{ server_name }}
+```
+
+## Usage
+
+```python
+from {{ server_name }} import get_server
+
+# Create server instance
+server = get_server()
+
+# Run server
+server.run()
+```
+
+## API
+
+### Root
+
+```http
+GET /
+```
+
+Returns server information.
+
+### Query
+
+```http
+POST /query
+```
+
+Query the embeddings table.
+
+**Request Body**
+
+```json
+{
+    "query": "string",
+    "k": 10,
+    "nprobes": 20
+}
+```
+
+- `query`: Query string
+- `k`: Number of results to return (default: 10)
+- `nprobes`: Number of probes to use (default: 20)
+
+**Response**
+
+```json
+{
+    "results": [
+        {
+            "id": "string",
+            "embedding": [float],
+            "metadata": {}
+        }
+    ]
+}
+```

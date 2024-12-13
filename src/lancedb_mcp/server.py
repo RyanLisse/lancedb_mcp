@@ -1,357 +1,233 @@
-"""
-LanceDB MCP Server Implementation
-Provides vector database operations through MCP protocol
-"""
+"""LanceDB server implementation."""
 
 import asyncio
 import logging
-import json
-import time
-from typing import Dict, List, Optional, Any, Union, AsyncIterator
-import os
-from contextlib import contextmanager, suppress
-from datetime import datetime, timezone, timedelta
+from pathlib import Path
+from typing import Any
 
 import lancedb
-import numpy as np
-import pandas as pd
-from mcp.server import Server, request_ctx
-from mcp.server.models import InitializationOptions
-from mcp.types import (
-    Resource, TextContent, ServerCapabilities,
-    ToolsCapability, ResourcesCapability, Tool,
-    Implementation, ClientCapabilities, CallToolResult,
-    JSONRPCNotification
-)
-from pydantic import AnyUrl, BaseModel, Field, ConfigDict
-import pyarrow as pa
+from mcp.server import Server
+from mcp.shared.session import BaseSession
+from pydantic import BaseModel
 
-logger = logging.getLogger('mcp_lancedb_server')
-
-class VectorData(BaseModel):
-    """Vector data model for LanceDB operations"""
-    vector: List[float]
-    text: Optional[str] = None
-    metadata: Optional[Dict] = None
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 class DatabaseError(Exception):
-    """Base exception for database operations"""
-    pass
+    """Database error."""
+
+
+class VectorData(BaseModel):
+    """Vector data model."""
+
+    vector: list[float]
+    text: str
+    metadata: dict[str, Any]
+
+
+class TableConfig(BaseModel):
+    """Table configuration."""
+
+    name: str
+
+
+class SearchConfig(BaseModel):
+    """Search configuration."""
+
+    table_name: str
+    query_vector: list[float]
+    limit: int = 10
+
 
 class LanceDBServer(Server):
-    """LanceDB MCP Server implementation"""
-    
-    def __init__(self, db_uri: str = "data/vectors"):
-        """Initialize the LanceDB server.
-        
+    """LanceDB server implementation."""
+
+    def __init__(self, uri: str | Path = None):
+        """Initialize LanceDB server.
+
         Args:
-            db_uri: Path to the database directory
+        ----
+            uri: Database URI
         """
-        super().__init__(name="lancedb_mcp")
-        self.db_uri = db_uri
+        self.uri = uri or str(Path.home() / "lancedb")
         self.db = None
-        self.tables: Dict[str, Any] = {}
-        self.start_time = None
-        self._lock = asyncio.Lock()
+        self.logger = logging.getLogger(__name__)
+        self._tables = {}  # Keep track of created tables
 
-    def _get_timestamp(self) -> str:
-        """Get current UTC timestamp in ISO format"""
-        return datetime.now(timezone.utc).isoformat()
-
-    async def _send_log(self, level: str, message: str):
-        """Send log message to client if context available"""
-        logger.log(getattr(logging, level), message)
+    async def start(self):
+        """Start the LanceDB server."""
         try:
-            ctx = request_ctx.get()
-            if hasattr(ctx, 'session'):
-                notification = JSONRPCNotification(
-                    jsonrpc="2.0",
-                    method="log",
-                    params={"level": level, "data": message}
-                )
-                await ctx.session.send_notification(notification)
-        except LookupError:
-            # No request context available
-            pass
-
-    async def start(self) -> None:
-        """Start the server and connect to the database"""
-        try:
-            async with self._lock:
-                # Create database directory if it doesn't exist
-                db_path = os.path.abspath(self.db_uri)
-                db_dir = os.path.dirname(db_path)
-                if db_dir:  # Only create directory if db_uri has a parent directory
-                    os.makedirs(db_dir, exist_ok=True)
-                
-                try:
-                    await self._send_log("INFO", f"Connecting to database at {db_path}")
-                    
-                    # Create an empty DataFrame to initialize the database
-                    empty_df = pd.DataFrame({"dummy": [0]})  # Need at least one row
-                    self.db = await asyncio.to_thread(lambda: lancedb.connect(db_path))
-                    await asyncio.to_thread(lambda: self.db.create_table("_init", empty_df, mode="overwrite"))
-                    await self._send_log("INFO", "Connected to database")
-                    
-                    # Initialize tables dict
-                    self.tables = {}
-                    
-                    # Get list of existing tables
-                    table_names = await asyncio.to_thread(lambda: list(self.db.table_names()))
-                    table_names = [name for name in table_names if name != "_init"]  # Exclude init table
-                    await self._send_log("INFO", f"Found {len(table_names)} existing tables")
-                    
-                    # Open existing tables
-                    for table_name in table_names:
-                        try:
-                            self.tables[table_name] = await asyncio.to_thread(
-                                self.db.open_table, table_name
-                            )
-                            await self._send_log("INFO", f"Opened table {table_name}")
-                        except Exception as e:
-                            await self._send_log("WARNING", f"Failed to open table {table_name}: {str(e)}")
-                    
-                    # Set server start time
-                    self.start_time = self._get_timestamp()
-                    await self._send_log("INFO", "Server started successfully")
-                    
-                except Exception as e:
-                    self.db = None
-                    await self._send_log("ERROR", f"Failed to connect to database: {str(e)}")
-                    raise DatabaseError(f"Failed to connect to database: {str(e)}")
-                
-        except Exception as e:
-            await self._send_log("ERROR", f"Failed to start server: {str(e)}")
-            raise DatabaseError(f"Failed to start server: {str(e)}")
+            self.db = lancedb.connect(self.uri)
+            self.logger.info("Connected to LanceDB at %s", self.uri)
+        except Exception as err:
+            self.logger.error("Failed to connect to LanceDB: %s", err)
+            raise DatabaseError("Failed to connect to database") from err
 
     async def stop(self):
-        """Stop the LanceDB server"""
-        try:
-            async with self._lock:
-                # Clear all table references first
-                for table_name in list(self.tables.keys()):
-                    self.tables[table_name] = None
-                self.tables.clear()
-                
-                # Close database connection
-                if self.db is not None:
-                    self.db = None
-                    
-                self.start_time = None
-                await self._send_log("INFO", "Server stopped successfully")
-        except Exception as e:
-            await self._send_log("ERROR", f"Error stopping server: {str(e)}")
-            raise DatabaseError(f"Error stopping server: {str(e)}")
+        """Stop the LanceDB server."""
+        if self.db:
+            try:
+                await self.db.close()
+            except Exception as err:
+                self.logger.error("Failed to close database: %s", err)
+            finally:
+                self.db = None
+                self._tables = {}  # Clear table cache
+            self.logger.info("Disconnected from LanceDB")
 
-    async def get_implementation(self) -> Implementation:
-        """Get server implementation details"""
-        return Implementation(
-            name="lancedb_mcp",
-            version="0.1.0",
-            vendor="LanceDB"
-        )
+    async def list_resources(self) -> list[dict[str, Any]]:
+        """List available resources.
 
-    async def get_capabilities(self) -> ServerCapabilities:
-        """Get server capabilities"""
-        return ServerCapabilities(
-            tools=ToolsCapability(
-                tools=[
-                    Tool(
-                        name="create_table",
-                        description="Create a new vector table",
-                        parameters={
-                            "table_name": "string",
-                            "dimension": "integer"
-                        }
-                    ),
-                    Tool(
-                        name="add_vector",
-                        description="Add a vector to a table",
-                        parameters={
-                            "table_name": "string",
-                            "vector": "List[float]",
-                            "metadata": "Optional[Dict]"
-                        }
-                    ),
-                    Tool(
-                        name="search_vectors",
-                        description="Search for similar vectors",
-                        parameters={
-                            "table_name": "string",
-                            "query_vector": "List[float]",
-                            "limit": "integer"
-                        }
-                    )
-                ]
-            ),
-            resources=ResourcesCapability(
-                supports_create=True,
-                supports_delete=True,
-                supports_update=True
-            )
-        )
-
-    async def list_resources(self) -> List[Resource]:
-        """List available tables"""
-        try:
-            async with self._lock:
-                if not self.db:
-                    return []  # Return empty list if database is not initialized
-                
-                tables = []
-                table_names = await asyncio.to_thread(lambda: list(self.db.table_names()))
-                table_names = [name for name in table_names if name != "_init"]  # Exclude init table
-                for table_name in table_names:
-                    tables.append(Resource(
-                        id=table_name,
-                        name=table_name,
-                        uri=f"table://{table_name}",
-                        type="table",
-                        content=TextContent(
-                            type="text",
-                            text=f"Vector table: {table_name}"
-                        )
-                    ))
-                return tables
-        except Exception as e:
-            await self._send_log("ERROR", f"Failed to list tables: {str(e)}")
-            raise DatabaseError(f"Failed to list tables: {str(e)}")
-
-    def _validate_db_state(self) -> bool:
-        """Validate database connection state"""
+        Returns
+        -------
+            List of resources
+        """
         if not self.db:
-            raise DatabaseError("Database not initialized")
-        return True
+            raise DatabaseError("Database not connected")
 
-    async def create_table(self, table_name: str, dimension: int) -> Dict[str, str]:
-        """Create a new table with the specified name and vector dimension"""
         try:
-            async with self._lock:
-                self._validate_db_state()
-                if dimension <= 0:
-                    raise ValueError("Vector dimension must be positive")
-                
-                # Create schema with proper types
-                schema = pa.schema([
-                    pa.field("vector", pa.list_(pa.float32(), dimension)),
-                    pa.field("text", pa.string(), nullable=True),
-                    pa.field("metadata", pa.string(), nullable=True)  # Store metadata as JSON string
-                ])
-                
-                # Create empty DataFrame with proper vector type
-                empty_data = pd.DataFrame({
-                    "vector": [[0.0] * dimension],  # Initialize with a zero vector
-                    "text": [None],
-                    "metadata": [None]
-                })
-                
-                # Create the table
-                try:
-                    self.tables[table_name] = await asyncio.to_thread(
-                        lambda: self.db.create_table(
-                            table_name,
-                            data=empty_data,
-                            schema=schema,
-                            mode="overwrite"
-                        )
-                    )
-                    await self._send_log("INFO", f"Created table {table_name}")
-                    return {"status": "success", "message": f"Created table {table_name}"}
-                except Exception as e:
-                    await self._send_log("ERROR", f"Failed to create table {table_name}: {str(e)}")
-                    raise DatabaseError(f"Failed to create table: {str(e)}")
-        except Exception as e:
-            await self._send_log("ERROR", f"Failed to create table {table_name}: {str(e)}")
-            raise DatabaseError(f"Failed to create table: {str(e)}")
+            tables = self.db.table_names()
+            return [{"id": table, "type": "table"} for table in tables]
+        except Exception as err:
+            self.logger.error("Failed to list tables: %s", err)
+            raise DatabaseError("Failed to list tables") from err
 
-    async def add_vector(self, table_name: str, vector: List[float], text: Optional[str] = None, metadata: Optional[Dict] = None) -> Dict[str, str]:
-        """Add a vector to the specified table"""
+    async def create_table(self, config: TableConfig) -> dict[str, str]:
+        """Create a new table in the database.
+
+        Args:
+        ----
+            config: Table configuration
+
+        Returns:
+        -------
+            Status message
+        """
+        if not self.db:
+            raise DatabaseError("Database not connected")
+
         try:
-            async with self._lock:
-                self._validate_db_state()
+            schema = {"vector": "vector", "text": "string", "metadata": "json"}
 
-                if table_name not in self.tables:
-                    # Try to open the table if it exists
-                    try:
-                        self.tables[table_name] = await asyncio.to_thread(self.db.open_table, table_name)
-                    except Exception as e:
-                        raise DatabaseError(f"Table {table_name} not found: {str(e)}")
+            self._tables[config.name] = self.db.create_table(
+                config.name, schema=schema, mode="overwrite"
+            )
 
-                table = self.tables[table_name]
-                table_schema = await asyncio.to_thread(lambda: table.schema)
-                expected_dim = table_schema.field("vector").type.list_size
-                
-                if len(vector) != expected_dim:
-                    raise ValueError(f"Vector dimension mismatch: expected {expected_dim}, got {len(vector)}")
+            self.logger.info("Created table %s", config.name)
+            return {"status": "success"}
+        except Exception as err:
+            self.logger.error("Failed to create table: %s", err)
+            raise DatabaseError("Failed to create table") from err
 
-                # Convert metadata to JSON string if present
-                metadata_str = json.dumps(metadata) if metadata else None
+    async def add_vector(self, table_name: str, data: VectorData) -> dict[str, str]:
+        """Add a vector to a table.
 
-                # Create data frame with proper types
-                data = {
-                    "vector": [vector],
-                    "text": [text] if text else [None],
-                    "metadata": [metadata_str] if metadata_str else [None]
+        Args:
+        ----
+            table_name: Table name
+            data: Vector data
+
+        Returns:
+        -------
+            Status message
+        """
+        if not self.db:
+            raise DatabaseError("Database not connected")
+
+        try:
+            table = self._tables.get(table_name) or self.db[table_name]
+            self._tables[table_name] = table  # Cache table
+
+            # Convert data to dictionary for insertion
+            vector_dict = {
+                "vector": data.vector,
+                "text": data.text,
+                "metadata": data.metadata,
+            }
+
+            table.add([vector_dict])
+            return {"status": "success"}
+        except Exception as err:
+            self.logger.error("Failed to add vector: %s", err)
+            raise DatabaseError("Failed to add vector") from err
+
+    async def search_vectors(self, config: SearchConfig) -> list[dict[str, Any]]:
+        """Search for similar vectors.
+
+        Args:
+        ----
+            config: Search configuration
+
+        Returns:
+        -------
+            List of search results
+        """
+        if not self.db:
+            raise DatabaseError("Database not connected")
+
+        try:
+            table = self._tables.get(config.table_name) or self.db[config.table_name]
+            self._tables[config.table_name] = table  # Cache table
+
+            results = table.search(config.query_vector).limit(config.limit).to_list()
+
+            return [
+                {
+                    "vector": result["vector"],
+                    "text": result["text"],
+                    "metadata": result["metadata"],
                 }
-                df = pd.DataFrame(data)
+                for result in results
+            ]
+        except Exception as err:
+            self.logger.error("Failed to search vectors: %s", err)
+            raise DatabaseError("Failed to search vectors") from err
 
-                # Add to table
-                try:
-                    await asyncio.to_thread(lambda: table.add(df))
-                    await self._send_log("INFO", f"Added vector to table {table_name}")
-                    return {"status": "success", "message": f"Added vector to table {table_name}"}
-                except Exception as e:
-                    await self._send_log("ERROR", f"Failed to add vector to table {table_name}: {str(e)}")
-                    raise DatabaseError(f"Failed to add vector to table {table_name}: {str(e)}")
+    async def handle_request(self, session: BaseSession) -> None:
+        """Handle incoming requests.
 
-        except Exception as e:
-            await self._send_log("ERROR", f"Failed to add vector: {str(e)}")
-            raise DatabaseError(str(e))
-
-    async def search_vectors(
-        self, table_name: str, query_vector: List[float], limit: int = 10
-    ) -> List[Dict[str, Any]]:
-        """Search for similar vectors in the specified table"""
+        Args:
+        ----
+            session: Session instance
+        """
         try:
-            async with self._lock:
-                self._validate_db_state()
+            if session.request.get("type") == "list_resources":
+                resources = await self.list_resources()
+                await session.send_response(resources)
 
-                if table_name not in self.tables:
-                    # Try to open the table if it exists
-                    try:
-                        self.tables[table_name] = await asyncio.to_thread(self.db.open_table, table_name)
-                    except Exception:
-                        raise DatabaseError(f"Table {table_name} not found")
+            elif session.request.get("type") == "create_table":
+                config = TableConfig(**session.request.get("config", {}))
+                result = await self.create_table(config)
+                await session.send_response(result)
 
-                table = self.tables[table_name]
-                table_schema = await asyncio.to_thread(lambda: table.schema)
-                expected_dim = table_schema.field("vector").type.list_size
-                
-                if len(query_vector) != expected_dim:
-                    raise ValueError(f"Query vector dimension mismatch: expected {expected_dim}, got {len(query_vector)}")
+            elif session.request.get("type") == "add_vector":
+                table_name = session.request.get("table_name")
+                data = VectorData(**session.request.get("data", {}))
+                result = await self.add_vector(table_name, data)
+                await session.send_response(result)
 
-                # Perform search
-                results = await asyncio.to_thread(
-                    lambda: table.search(query_vector).limit(limit).to_list()
-                )
-                await self._send_log("INFO", f"Found {len(results)} results in table {table_name}")
-                return results
+            elif session.request.get("type") == "search_vectors":
+                config = SearchConfig(**session.request.get("config", {}))
+                results = await self.search_vectors(config)
+                await session.send_response(results)
 
-        except Exception as e:
-            await self._send_log("ERROR", f"Failed to search vectors: {str(e)}")
-            raise DatabaseError(f"Failed to search vectors: {str(e)}")
+            else:
+                await session.send_error(f"Unknown request: {session.request}")
 
-async def main():
-    """Run the LanceDB MCP server"""
+        except Exception as err:
+            self.logger.error("Error handling request: %s", err)
+            await session.send_error(str(err))
+
+
+async def main() -> None:
+    """Run the server."""
     server = LanceDBServer()
     await server.start()
+
     try:
-        # Keep the server running
         while True:
             await asyncio.sleep(1)
-    finally:
+    except KeyboardInterrupt:
         await server.stop()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

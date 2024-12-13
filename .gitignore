@@ -39,6 +39,9 @@ coverage.xml
 .pytest_cache/
 htmlcov/
 
+# Documentation
+DOCS/
+
 # Misc
 .DS_Store
 *.log

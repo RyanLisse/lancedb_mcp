@@ -1,8 +1,8 @@
-# LanceDB MCP Server 
+# LanceDB MCP Server
 
 A Model Control Protocol (MCP) server implementation for LanceDB vector database operations. This server provides a standardized interface for vector storage and similarity search operations through the MCP protocol.
 
-## Features 
+## Features
 
 - Vector storage and retrieval
 - Similarity search
@@ -10,7 +10,7 @@ A Model Control Protocol (MCP) server implementation for LanceDB vector database
 - Resource listing and querying
 - Efficient vector operations
 
-## Installation 
+## Installation
 
 ```bash
 # Clone the repository
@@ -25,7 +25,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e .
 ```
 
-## Usage 
+## Usage
 
 ### Starting the Server
 
@@ -51,7 +51,7 @@ lancedb-mcp
    - Performs similarity search
    - Returns nearest neighbors with similarity scores
 
-## API Reference 
+## API Reference
 
 ### Vector Data Model
 
@@ -84,7 +84,7 @@ lancedb-mcp
    }
    ```
 
-## Development 
+## Development
 
 ### Testing
 
@@ -100,6 +100,6 @@ This project follows:
 - Type hints
 - Comprehensive docstrings
 
-## License 
+## License
 
 MIT License - see LICENSE file for details
