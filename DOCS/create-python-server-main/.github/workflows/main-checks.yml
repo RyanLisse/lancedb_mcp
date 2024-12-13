@@ -1,0 +1,9 @@
+name: Main branch checks
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    uses: ./.github/workflows/shared.yml
