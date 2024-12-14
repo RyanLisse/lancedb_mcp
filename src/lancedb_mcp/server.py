@@ -1,158 +1,101 @@
-"""LanceDB server implementation."""
+"""FastAPI server for LanceDB."""
 
 import logging
-from pathlib import Path
-from typing import Any
+import os
+from contextlib import asynccontextmanager
 
 import lancedb
 import pyarrow as pa
-from lancedb.table import LanceTable
+from fastapi import FastAPI, HTTPException
 
-from lancedb_mcp.models import TableConfig, VectorData
+from lancedb_mcp.models import SearchQuery, TableConfig, VectorData
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-class DatabaseError(Exception):
-    """Database error."""
-
-
-class LanceDBServer:
-    """LanceDB server."""
-
-    def __init__(self, uri: Path) -> None:
-        """Initialize server.
-
-        Args:
-        ----
-            uri: Database URI.
-        """
-        self.uri = uri
-        self.db: lancedb.LanceDBConnection | None = None
-        self.tables: dict[str, LanceTable] = {}
-        self.logger = logging.getLogger(__name__)
-
-    async def start(self) -> None:
-        """Start server."""
-        try:
-            self.db = lancedb.connect(str(self.uri))
-            self.logger.info("Server started")
-        except Exception as e:
-            self.logger.error(f"Failed to start server: {e}")
-            raise DatabaseError(f"Failed to start server: {e}") from e
-
-    async def stop(self) -> None:
-        """Stop server."""
-        try:
-            if self.db is not None:
-                self.tables.clear()
-                self.db = None
-            self.logger.info("Server stopped")
-        except Exception as e:
-            self.logger.error(f"Failed to stop server: {e}")
-            raise DatabaseError(f"Failed to stop server: {e}") from e
-
-    async def create_table(self, config: TableConfig) -> None:
-        """Create table.
-
-        Args:
-        ----
-            config: Table configuration.
-        """
-        try:
-            if self.db is None:
-                raise DatabaseError("Database not connected")
-            schema = pa.schema(
-                [
-                    pa.field("vector", pa.list_(pa.float32(), config.dimension)),
-                    pa.field("text", pa.string()),
-                ]
-            )
-            self.tables[config.name] = self.db.create_table(
-                config.name,
-                schema=schema,
-                mode="overwrite",
-            )
-            self.logger.info(f"Created table {config.name}")
-        except Exception as e:
-            self.logger.error(f"Failed to create table: {e}")
-            raise DatabaseError(f"Failed to create table: {e}") from e
-
-    async def add_vector(self, table_name: str, data: VectorData) -> None:
-        """Add vector to table.
-
-        Args:
-        ----
-            table_name: Table name.
-            data: Vector data.
-        """
-        try:
-            if self.db is None:
-                raise DatabaseError("Database not connected")
-            if table_name not in self.tables:
-                raise DatabaseError(f"Table {table_name} does not exist")
-            table = self.tables[table_name]
-            table.add(
-                [
-                    {
-                        "vector": data.vector,
-                        "text": data.text,
-                    }
-                ]
-            )
-            self.logger.info(f"Added vector to table {table_name}")
-        except Exception as e:
-            self.logger.error(f"Failed to add vector: {e}")
-            raise DatabaseError(f"Failed to add vector: {e}") from e
-
-    async def search_vectors(
-        self, table_name: str, query_vector: list[float]
-    ) -> list[dict[str, Any]]:
-        """Search vectors.
-
-        Args:
-        ----
-            table_name: Table name.
-            query_vector: Query vector.
-
-        Returns:
-        -------
-            List of search results.
-        """
-        try:
-            if self.db is None:
-                raise DatabaseError("Database not connected")
-            if table_name not in self.tables:
-                raise DatabaseError(f"Table {table_name} does not exist")
-            table = self.tables[table_name]
-            results = table.search(query_vector).limit(10).to_list()
-            self.logger.info(f"Searched vectors in table {table_name}")
-            return results
-        except Exception as e:
-            self.logger.error(f"Failed to search vectors: {e}")
-            raise DatabaseError(f"Failed to search vectors: {e}") from e
+# Global database URI
+DB_URI = os.getenv("LANCEDB_URI", ".lancedb")
 
 
-class LanceDBServerContext:
-    """LanceDB server context manager."""
+def set_db_uri(uri: str) -> None:
+    """Set the database URI."""
+    global DB_URI
+    DB_URI = uri
+    logger.info(f"Set database URI to {uri}")
 
-    def __init__(self, uri: Path) -> None:
-        """Initialize context manager.
 
-        Args:
-        ----
-            uri: Database URI.
-        """
-        self._server = LanceDBServer(uri)
+def get_db() -> lancedb.LanceDB:
+    """Get database connection."""
+    logger.info(f"Connecting to database at {DB_URI}")
+    try:
+        return lancedb.connect(DB_URI)
+    except Exception as err:
+        logger.error(f"Failed to connect to database: {err}")
+        raise HTTPException(status_code=500, detail=str(err)) from err
 
-    async def __aenter__(self) -> LanceDBServer:
-        """Enter context.
 
-        Returns
-        -------
-            LanceDB server.
-        """
-        await self._server.start()
-        return self._server
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage database connection lifecycle."""
+    yield
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Exit context."""
-        await self._server.stop()
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.post("/table")
+async def create_table(config: TableConfig) -> dict[str, str]:
+    """Create a new table."""
+    db = get_db()
+    try:
+        # Create empty table with PyArrow schema
+        empty_data = pa.Table.from_arrays(
+            [
+                pa.array([], type=pa.list_(pa.float32(), config.dimension)),
+                pa.array([], type=pa.string()),
+            ],
+            names=["vector", "text"],
+        )
+        logger.info(f"Creating table {config.name}")
+        db.create_table(config.name, data=empty_data, mode="overwrite")
+        return {"message": f"Created table {config.name}"}
+    except Exception as err:
+        logger.error(f"Failed to create table: {err}")
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@app.post("/vector/{table_name}")
+async def add_vector(table_name: str, data: VectorData) -> dict[str, str]:
+    """Add vector to table."""
+    db = get_db()
+    try:
+        table = db[table_name]
+        logger.info(f"Adding vector to table {table_name}")
+        table.add([{"vector": data.vector, "text": data.text}])
+        return {"message": "Added vector to table"}
+    except Exception as err:
+        logger.error(f"Failed to add vector: {err}")
+        if "does not exist" in str(err):
+            raise HTTPException(
+                status_code=404, detail=f"Table {table_name} not found"
+            ) from err
+        raise HTTPException(status_code=400, detail=str(err)) from err
+
+
+@app.post("/search/{table_name}")
+async def search_vectors(table_name: str, query: SearchQuery) -> dict[str, list]:
+    """Search vectors in table."""
+    db = get_db()
+    try:
+        table = db[table_name]
+        logger.info(f"Searching in table {table_name}")
+        results = table.search(query.vector).limit(query.limit).to_list()
+        return {"results": results}
+    except Exception as err:
+        logger.error(f"Failed to search vectors: {err}")
+        if "does not exist" in str(err):
+            raise HTTPException(
+                status_code=404, detail=f"Table {table_name} not found"
+            ) from err
+        raise HTTPException(status_code=400, detail=str(err)) from err

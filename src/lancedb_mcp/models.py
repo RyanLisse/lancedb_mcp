@@ -1,33 +1,25 @@
-"""Data models for LanceDB MCP server."""
-
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict, Field
+"""Models for LanceDB MCP."""
 
 
-class VectorData(BaseModel):
-    """Vector data model for LanceDB operations."""
-
-    vector: list[float]
-    text: str | None = None
-    metadata: dict[str, Any] | None = None
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+from pydantic import BaseModel, Field
 
 
 class TableConfig(BaseModel):
-    """Table configuration model."""
+    """Configuration for creating a table."""
 
-    name: str = Field(..., description="Name of the table")
-    dimension: int = Field(..., description="Dimension of vectors in the table", gt=0)
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    name: str = Field(..., min_length=1)
+    dimension: int = Field(..., gt=0)
 
 
-class SearchConfig(BaseModel):
-    """Search configuration model."""
+class VectorData(BaseModel):
+    """Vector data for adding to a table."""
 
-    table_name: str = Field(..., description="Name of the table to search in")
-    query_vector: list[float] = Field(
-        ..., description="Query vector for similarity search"
-    )
-    limit: int = Field(10, description="Maximum number of results to return", gt=0)
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    vector: list[float] = Field(..., min_length=1)
+    text: str = Field(..., min_length=1)
+
+
+class SearchQuery(BaseModel):
+    """Search query for finding similar vectors."""
+
+    vector: list[float] = Field(..., min_length=1)
+    limit: int = Field(default=10, gt=0)

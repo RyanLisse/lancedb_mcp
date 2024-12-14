@@ -10,7 +10,8 @@ dependencies = [
     "mcp>=1.1.2",
     "numpy>=1.24.0",
     "fastapi>=0.100.0",
-    "uvicorn>=0.22.0"
+    "uvicorn>=0.22.0",
+    "tomlkit>=0.12.0"
 ]
 authors = [
     { name = "RyanLisse", email = "ryan.lisse@gmail.com" }
