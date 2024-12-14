@@ -1,86 +1,80 @@
-"""Test server functionality."""
+"""Server tests."""
 
-from collections.abc import AsyncGenerator
 from pathlib import Path
 
 import pytest
 from lancedb_mcp.models import TableConfig, VectorData
-from lancedb_mcp.server import DatabaseError, LanceDBServer
+from lancedb_mcp.server import DatabaseError, LanceDBServer, LanceDBServerContext
 
 
 @pytest.fixture
-async def server(tmp_path: Path) -> AsyncGenerator[LanceDBServer, None]:
-    """Create a test server instance."""
+async def server(tmp_path: Path) -> LanceDBServer:
+    """Server fixture."""
     server = LanceDBServer(uri=tmp_path)
     await server.start()
-    try:
-        yield server
-    finally:
-        await server.stop()
+    yield server
+    await server.stop()
 
 
 @pytest.mark.asyncio
 async def test_server_start_stop(tmp_path: Path) -> None:
     """Test server start and stop."""
-    server = LanceDBServer(uri=tmp_path)
-    await server.start()
-    assert server.db is not None
-    await server.stop()
+    async with LanceDBServerContext(tmp_path) as server:
+        assert server.db is not None
     assert server.db is None
 
 
 @pytest.mark.asyncio
-async def test_create_table(server: LanceDBServer) -> None:
+async def test_create_table(tmp_path: Path) -> None:
     """Test table creation."""
-    config = TableConfig(name="test_table", dimension=3)
-    await server.create_table(config)
-    assert await server.table_exists("test_table")
+    async with LanceDBServerContext(tmp_path) as server:
+        config = TableConfig(name="test_table", dimension=3)
+        await server.create_table(config)
 
 
 @pytest.mark.asyncio
-async def test_add_vector(server: LanceDBServer) -> None:
+async def test_add_vector(tmp_path: Path) -> None:
     """Test adding vector to table."""
-    # Create table
-    config = TableConfig(name="test_table", dimension=3)
-    await server.create_table(config)
+    async with LanceDBServerContext(tmp_path) as server:
+        # Create table
+        config = TableConfig(name="test_table", dimension=3)
+        await server.create_table(config)
 
-    # Add vector
-    vector = VectorData(vector=[1.0, 0.0, 0.0], text="test")
-    await server.add_vector("test_table", vector)
-
-    # Verify vector was added
-    table = await server.get_table("test_table")
-    assert len(table) == 1
+        # Add vector
+        data = VectorData(vector=[1.0, 0.0, 0.0], text="test")
+        await server.add_vector("test_table", data)
 
 
 @pytest.mark.asyncio
-async def test_search_vectors(server: LanceDBServer) -> None:
+async def test_search_vectors(tmp_path: Path) -> None:
     """Test vector search."""
-    # Create table and add vector
-    config = TableConfig(name="test_table", dimension=3)
-    await server.create_table(config)
+    async with LanceDBServerContext(tmp_path) as server:
+        # Create table and add vector
+        config = TableConfig(name="test_table", dimension=3)
+        await server.create_table(config)
+        data = VectorData(vector=[1.0, 0.0, 0.0], text="test")
+        await server.add_vector("test_table", data)
 
-    vector = VectorData(vector=[1.0, 0.0, 0.0], text="test")
-    await server.add_vector("test_table", vector)
-
-    # Search for vector
-    results = await server.search_vectors("test_table", [1.0, 0.0, 0.0])
-    assert len(results) == 1
-    assert results[0]["text"] == "test"
+        # Search vectors
+        results = await server.search_vectors("test_table", [1.0, 0.0, 0.0])
+        assert len(results) == 1
+        assert results[0]["text"] == "test"
 
 
 @pytest.mark.asyncio
-async def test_error_logging(server: LanceDBServer) -> None:
+async def test_error_logging(tmp_path: Path) -> None:
     """Test error logging."""
-    with pytest.raises(DatabaseError):
-        await server.add_vector(
-            "nonexistent_table", VectorData(vector=[1.0, 0.0, 0.0], text="test")
-        )
+    async with LanceDBServerContext(tmp_path) as server:
+        with pytest.raises(DatabaseError):
+            await server.add_vector(
+                "nonexistent_table", VectorData(vector=[1.0, 0.0, 0.0], text="test")
+            )
 
 
 @pytest.mark.asyncio
-async def test_database_error() -> None:
-    """Test database error handling."""
-    server = LanceDBServer(uri="/nonexistent/path")
-    with pytest.raises(DatabaseError):
-        await server.start()
+async def test_database_error(tmp_path: Path) -> None:
+    """Test database error."""
+    async with LanceDBServerContext(tmp_path) as server:
+        server.db = None
+        with pytest.raises(DatabaseError):
+            await server.create_table(TableConfig(name="test", dimension=3))

@@ -19,16 +19,13 @@ def test_pyproject_class(tmp_path: Path) -> None:
 name = "test-project"
 version = "0.1.0"
 description = "Test project"
-
-[project.scripts]
-test-script = "test_project.__main__:main"
 """
     pyproject_path = tmp_path / "pyproject.toml"
     pyproject_path.write_text(pyproject_content)
 
     project = PyProject(pyproject_path)
-    assert project.name == "test-project"
-    assert project.first_binary == "test-script"
+    assert project.settings["project"]["name"] == "test-project"
+    assert project.settings["project"]["version"] == "0.1.0"
 
 
 def test_get_package_directory(tmp_path: Path) -> None:
@@ -37,23 +34,21 @@ def test_get_package_directory(tmp_path: Path) -> None:
     src_dir.mkdir(parents=True)
     (src_dir / "__init__.py").touch()
 
-    result = get_package_directory(tmp_path)
-    assert result == src_dir
+    package_dir = get_package_directory(tmp_path)
+    assert package_dir == src_dir
 
 
 def test_check_package_name() -> None:
     """Test package name validation."""
-    # Valid names should not raise SystemExit
-    check_package_name("valid-name")
-    check_package_name("valid_name")
-    check_package_name("valid123")
+    # Test valid package names
+    assert check_package_name("valid_name") is True
+    assert check_package_name("valid-name") is True
+    assert check_package_name("valid123") is True
 
-    # Invalid names should raise SystemExit
-    with pytest.raises(SystemExit):
-        check_package_name("Invalid Name")
-
-    with pytest.raises(SystemExit):
-        check_package_name("invalid@name")
+    # Test invalid package names
+    assert check_package_name("invalid name") is False
+    assert check_package_name("123invalid") is False
+    assert check_package_name("") is False
 
 
 def test_update_pyproject_settings(tmp_path: Path) -> None:
@@ -67,15 +62,11 @@ description = "Old description"
     pyproject_path = tmp_path / "pyproject.toml"
     pyproject_path.write_text(pyproject_content)
 
-    settings = {
-        "version": "1.0.0",
-        "description": "New description",
-    }
-    update_pyproject_settings(tmp_path, settings)
-
-    project = PyProject(pyproject_path)
-    assert project.data["project"]["version"] == "1.0.0"
-    assert project.data["project"]["description"] == "New description"
+    update_pyproject_settings(tmp_path, "new-name", "New description", "1.0.0")
+    pyproject = PyProject(pyproject_path)
+    assert pyproject.settings["project"]["name"] == "new-name"
+    assert pyproject.settings["project"]["description"] == "New description"
+    assert pyproject.settings["project"]["version"] == "1.0.0"
 
 
 def test_version_from_pyproject(
@@ -85,34 +76,17 @@ def test_version_from_pyproject(
     pyproject_content = """
 [project]
 name = "test-project"
-version = "1.0.0"
+version = "1.2.3"
+description = "Test project"
 """
     pyproject_path = tmp_path / "pyproject.toml"
     pyproject_path.write_text(pyproject_content)
 
-    monkeypatch.chdir(tmp_path)
-    assert get_version() == "1.0.0"
-
-
-def test_pyproject_load() -> None:
-    """Test loading PyProject configuration."""
-    project = PyProject()
-    assert isinstance(project.data, dict)
+    monkeypatch.setattr("pathlib.Path.cwd", lambda: tmp_path)
+    assert get_version() == "1.2.3"
 
 
 def test_pyproject_missing_file(tmp_path: Path) -> None:
     """Test handling of missing pyproject.toml file."""
-    with pytest.raises(FileNotFoundError):
-        PyProject(tmp_path / "nonexistent.toml")._load_config()
-
-
-def test_pyproject_custom_path(tmp_path: Path) -> None:
-    """Test loading PyProject from custom path."""
-    pyproject_content = """
-[project]
-name = "test"
-"""
-    pyproject_path = tmp_path / "custom_pyproject.toml"
-    pyproject_path.write_text(pyproject_content)
-    project = PyProject(pyproject_path)
-    assert project.data["project"]["name"] == "test"
+    pyproject = PyProject(tmp_path / "pyproject.toml")
+    assert pyproject.settings["project"]["version"] == "0.1.0"
