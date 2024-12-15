@@ -1,38 +1,27 @@
 """Models for LanceDB MCP."""
 
-from typing import Annotated
-
-from pydantic import BaseModel, Field, field_validator
-
-Vector = Annotated[list[float], Field(min_length=1)]
+from lancedb.pydantic import LanceModel, Vector
+from pydantic import Field
 
 
-class TableConfig(BaseModel):
+class TableConfig(LanceModel):
     """Configuration for creating a table."""
 
     name: str = Field(..., min_length=1, description="Name of the table")
-    dimension: int = Field(..., gt=0, description="Dimension of vectors in the table")
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, v: str) -> str:
-        """Validate table name."""
-        if not v.isalnum():
-            raise ValueError("Table name must be alphanumeric")
-        return v
+    dimension: int = Field(default=512, gt=0, description="Vector dimension")
+    metric: str = Field(default="cosine", description="Distance metric")
 
 
-class VectorData(BaseModel):
-    """Vector data for adding to a table."""
+class VectorData(LanceModel):
+    """Vector data with text and optional URI."""
 
-    vector: Vector = Field(..., description="Vector data")
-    text: str = Field(..., min_length=1, description="Text associated with vector")
+    vector: Vector = Field(..., dim=512, description="Vector data")
+    text: str = Field(default="", description="Text description")
+    uri: str | None = Field(default=None, description="Optional URI")
 
 
-class SearchQuery(BaseModel):
+class SearchQuery(LanceModel):
     """Search query for finding similar vectors."""
 
-    vector: Vector = Field(..., description="Query vector")
-    limit: int = Field(
-        default=10, gt=0, description="Maximum number of results to return"
-    )
+    vector: Vector = Field(..., dim=512, description="Query vector")
+    limit: int = Field(default=10, gt=0, description="Maximum number of results")

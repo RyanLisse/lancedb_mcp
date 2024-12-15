@@ -1,28 +1,13 @@
-"""LanceDB MCP initialization."""
+"""LanceDB MCP Server."""
 
-import os
-from pathlib import Path
+from lancedb_mcp.models import SearchQuery, TableConfig, VectorData
+from lancedb_mcp.server import set_db_uri
 
-from pydantic import BaseModel, Field
+__version__ = "0.1.0"
 
-# Constants
-PACKAGE_NAME = "lancedb_mcp"
-VERSION = "0.1.0"
-
-
-class Config(BaseModel):
-    """Package configuration."""
-
-    name: str = Field(default=PACKAGE_NAME)
-    version: str = Field(default=VERSION)
-    description: str | None = Field(default=None)
-
-
-def get_package_directory() -> Path:
-    """Get the package directory."""
-    return Path(os.path.dirname(os.path.abspath(__file__)))
-
-
-def get_version() -> str:
-    """Get package version."""
-    return VERSION
+__all__ = [
+    "SearchQuery",
+    "TableConfig",
+    "VectorData",
+    "set_db_uri",
+]
